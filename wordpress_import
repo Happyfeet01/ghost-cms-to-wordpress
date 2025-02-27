@@ -1,0 +1,83 @@
+import json
+import os
+import argparse
+from bs4 import BeautifulSoup
+
+def extract_images_from_url(url):
+    """Extrahiert alle Bild-URLs aus einem Artikel, wenn möglich."""
+    try:
+        response = requests.get(url, timeout=10)
+        if response.status_code == 200:
+            soup = BeautifulSoup(response.text, 'html.parser')
+            images = [img['src'] for img in soup.find_all('img') if 'src' in img.attrs]
+            return images
+    except:
+        pass
+    return []
+
+def convert_ghost_to_wxr(json_file, output_wxr):
+    """Konvertiert eine Ghost CMS JSON-Exportdatei in eine WordPress WXR-Datei."""
+    with open(json_file, "r", encoding="utf-8") as file:
+        ghost_data = json.load(file)
+    
+    posts = ghost_data["db"][0]["data"]["posts"]
+    
+    wxr_content = """<?xml version="1.0" encoding="UTF-8" ?>
+    <rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/"
+        xmlns:wfw="http://wellformedweb.org/CommentAPI/"
+        xmlns:dc="http://purl.org/dc/elements/1.1/"
+        xmlns:wp="http://wordpress.org/export/1.2/">
+        <channel>
+            <title>Ghost to WordPress</title>
+            <link>https://yourwordpresssite.com</link>
+            <description>Export from Ghost CMS</description>
+            <wp:wxr_version>1.2</wp:wxr_version>
+    """
+    
+    for post in posts:
+        title = post["title"]
+        content = post["html"]
+        slug = post["slug"]
+        date = post["published_at"]
+        feature_image = post.get("feature_image", "")
+        
+        # Extrahiere Bilder aus Artikel-URL
+        article_url = post.get("canonical_url", "")
+        image_urls = extract_images_from_url(article_url) if article_url else []
+        all_images = [feature_image] + image_urls
+        image_tags = "\n".join([f'<wp:postmeta><wp:meta_key>_wp_attached_file</wp:meta_key><wp:meta_value>{img}</wp:meta_value></wp:postmeta>' for img in all_images if img])
+        
+        wxr_content += f"""
+            <item>
+                <title>{title}</title>
+                <link>https://yourwordpresssite.com/{slug}/</link>
+                <pubDate>{date}</pubDate>
+                <dc:creator><![CDATA[admin]]></dc:creator>
+                <guid isPermaLink="false">https://yourwordpresssite.com/{slug}/</guid>
+                <description></description>
+                <content:encoded><![CDATA[{content}]]></content:encoded>
+                <wp:post_id>0</wp:post_id>
+                <wp:post_date>{date}</wp:post_date>
+                <wp:post_date_gmt>{date}</wp:post_date_gmt>
+                <wp:post_modified>{date}</wp:post_modified>
+                <wp:post_modified_gmt>{date}</wp:post_modified_gmt>
+                <wp:status>publish</wp:status>
+                <wp:post_type>post</wp:post_type>
+                {image_tags}
+            </item>
+        """
+    
+    wxr_content += """</channel></rss>"""
+    
+    with open(output_wxr, "w", encoding="utf-8") as file:
+        file.write(wxr_content)
+    
+    print(f"Konvertierung abgeschlossen! Datei gespeichert unter: {output_wxr}")
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Konvertiere Ghost JSON-Export in WordPress WXR")
+    parser.add_argument("json_file", help="Pfad zur Ghost JSON-Datei")
+    parser.add_argument("output_wxr", help="Pfad zur Ausgabe-WXR-Datei")
+    
+    args = parser.parse_args()
+    convert_ghost_to_wxr(args.json_file, args.output_wxr)
